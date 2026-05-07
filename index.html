@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>학급 통장</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ========== 로딩 화면 ========== -->
+  <section id="loading-screen" class="screen active">
+    <div style="display:flex;align-items:center;justify-content:center;min-height:100vh">
+      <p>불러오는 중...</p>
+    </div>
+  </section>
+
+  <!-- ========== 교사 첫 가입 ========== -->
+  <section id="setup-screen" class="screen">
+    <div class="login-container">
+      <div class="login-header">
+        <div class="logo">🏫</div>
+        <h1>학급 통장 첫 설정</h1>
+        <p class="subtitle">교사 계정을 먼저 만들어 주세요</p>
+      </div>
+      <form id="setup-form" class="login-form">
+        <div class="input-group">
+          <label>학급 이름</label>
+          <input type="text" id="setup-class" required placeholder="예: 4학년 3반" />
+        </div>
+        <div class="input-group">
+          <label>교사 ID</label>
+          <input type="text" id="setup-id" required placeholder="예: teacher" />
+        </div>
+        <div class="input-group">
+          <label>비밀번호</label>
+          <input type="password" id="setup-pw" required minlength="4" />
+        </div>
+        <div class="input-group">
+          <label>비밀번호 확인</label>
+          <input type="password" id="setup-pw2" required minlength="4" />
+        </div>
+        <button type="submit" class="btn-primary">교사 계정 만들기</button>
+        <p id="setup-error" class="error-msg"></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- ========== 로그인 ========== -->
+  <section id="login-screen" class="screen">
+    <div class="login-container">
+      <div class="login-header">
+        <div class="logo">💰</div>
+        <h1>학급 통장</h1>
+        <p class="subtitle" id="class-name-display">우리 반 경제 활동 시스템</p>
+      </div>
+
+      <div class="role-selector">
+        <button class="role-btn active" data-role="student">
+          <span class="role-icon">🎒</span>
+          <span>학생</span>
+        </button>
+        <button class="role-btn" data-role="teacher">
+          <span class="role-icon">👩‍🏫</span>
+          <span>교사</span>
+        </button>
+      </div>
+
+      <form id="login-form" class="login-form">
+        <div class="input-group">
+          <label for="login-id">아이디</label>
+          <input type="text" id="login-id" placeholder="아이디를 입력하세요" required autocomplete="off" />
+        </div>
+        <div class="input-group">
+          <label for="login-pw">비밀번호</label>
+          <input type="password" id="login-pw" placeholder="비밀번호를 입력하세요" required />
+        </div>
+        <button type="submit" class="btn-primary">로그인</button>
+        <p id="login-error" class="error-msg"></p>
+      </form>
+
+      <div class="login-footer">
+        <p>학생 계정은 교사가 만들어 줘야 사용할 수 있어요</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 교사용 대시보드 ========== -->
+  <section id="teacher-screen" class="screen">
+    <header class="app-header">
+      <div class="header-left">
+        <span class="header-logo">💰 학급 통장</span>
+        <span class="header-badge teacher-badge">교사</span>
+      </div>
+      <div class="header-right">
+        <span id="teacher-name">선생님</span>
+        <button id="teacher-logout" class="btn-text">로그아웃</button>
+      </div>
+    </header>
+
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="overview">대시보드</button>
+      <button class="tab-btn" data-tab="students">학생 관리</button>
+      <button class="tab-btn" data-tab="payment">급여/지급</button>
+      <button class="tab-btn" data-tab="jobs">직업 관리</button>
+      <button class="tab-btn" data-tab="shop">학급 가게</button>
+      <button class="tab-btn" data-tab="goals">학급 목표</button>
+      <button class="tab-btn" data-tab="games">게임 관리</button>
+      <button class="tab-btn" data-tab="stats">통계</button>
+      <button class="tab-btn" data-tab="transactions">거래 내역</button>
+      <button class="tab-btn" data-tab="settings">설정</button>
+    </nav>
+
+    <main class="app-main">
+      <!-- 대시보드 -->
+      <div id="tab-overview" class="tab-content active">
+        <div class="stat-grid">
+          <div class="stat-card">
+            <p class="stat-label">학생 수</p>
+            <h2 id="stat-students">0명</h2>
+          </div>
+          <div class="stat-card">
+            <p class="stat-label">총 통화량</p>
+            <h2 id="stat-money">0원</h2>
+          </div>
+          <div class="stat-card stat-treasury">
+            <p class="stat-label">국고 (세금/벌금)</p>
+            <h2 id="stat-treasury">0원</h2>
+          </div>
+          <div class="stat-card">
+            <p class="stat-label">오늘 거래</p>
+            <h2 id="stat-today">0건</h2>
+          </div>
+        </div>
+        <div class="card">
+          <h3>최근 거래 (10건)</h3>
+          <div id="overview-transactions" class="transaction-list"></div>
+        </div>
+      </div>
+
+      <!-- 학생 관리 -->
+      <div id="tab-students" class="tab-content">
+        <div class="section-header">
+          <h2>학생 계좌 관리</h2>
+          <div style="display:flex;gap:8px">
+            <button id="bulk-add-btn" class="btn-secondary">일괄 추가</button>
+            <button id="add-student-btn" class="btn-primary">+ 학생 추가</button>
+          </div>
+        </div>
+        <div id="students-list" class="card-grid"></div>
+      </div>
+
+      <!-- 급여/지급 -->
+      <div id="tab-payment" class="tab-content">
+        <div class="section-header"><h2>돈 지급</h2></div>
+        <div class="card">
+          <h3>💵 월급 일괄 지급</h3>
+          <p class="hint">직업이 배정된 모든 학생에게 직업별 월급을 한 번에 지급합니다</p>
+          <button id="pay-salary-all" class="btn-primary">전체 월급 지급</button>
+        </div>
+        <div class="card">
+          <h3>🎁 개별 지급 (보너스/상금)</h3>
+          <div class="form-row">
+            <select id="pay-student-select"></select>
+            <input type="number" id="pay-amount" placeholder="금액" min="1" />
+            <input type="text" id="pay-reason" placeholder="사유 (예: 발표 보너스)" />
+            <button id="pay-individual-btn" class="btn-primary">지급</button>
+          </div>
+        </div>
+        <div class="card">
+          <h3>👥 일괄 지급 (전체에게 같은 금액)</h3>
+          <p class="hint">예: 학급 행사 참여 보상</p>
+          <div class="form-row">
+            <input type="number" id="bulk-pay-amount" placeholder="금액" min="1" />
+            <input type="text" id="bulk-pay-reason" placeholder="사유" />
+            <button id="bulk-pay-btn" class="btn-primary">전체 지급</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 직업 관리 -->
+      <div id="tab-jobs" class="tab-content">
+        <div class="section-header">
+          <h2>직업 풀 관리</h2>
+          <button id="add-job-btn" class="btn-primary">+ 직업 추가</button>
+        </div>
+        <p class="hint">직업을 미리 만들어 두고, 매월 학생들에게 자유롭게 배정하세요. 직업 정보(월급, 정원)는 언제든 수정할 수 있습니다.</p>
+        <div id="jobs-list" class="card-grid"></div>
+
+        <div class="card">
+          <h3>📌 학생 직업 배정</h3>
+          <div class="form-row">
+            <select id="assign-student"></select>
+            <select id="assign-job"></select>
+            <button id="assign-job-btn" class="btn-primary">배정</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 학급 가게 -->
+      <div id="tab-shop" class="tab-content">
+        <div class="section-header">
+          <h2>🛒 학급 가게 관리</h2>
+          <div style="display:flex;gap:8px">
+            <button id="view-purchases-btn" class="btn-secondary">구매 내역</button>
+            <button id="add-item-btn" class="btn-primary">+ 물품 추가</button>
+          </div>
+        </div>
+        <p class="hint">학생들이 잔액으로 살 수 있는 물품·특권을 등록하세요. 학생이 구매하면 구매 내역에 표시됩니다.</p>
+        <div id="shop-items-list" class="card-grid"></div>
+      </div>
+
+      <!-- 학급 목표 -->
+      <div id="tab-goals" class="tab-content">
+        <div class="section-header">
+          <h2>🎯 학급 목표</h2>
+          <button id="add-goal-btn" class="btn-primary">+ 목표 추가</button>
+        </div>
+        <p class="hint">국고 잔액으로 달성할 학급 목표를 설정하세요 (예: 단합대회, 피자파티). 학생들도 진행 상황을 볼 수 있습니다.</p>
+        <div id="goals-list" class="card-grid"></div>
+      </div>
+
+      <!-- 게임 관리 -->
+      <div id="tab-games" class="tab-content">
+        <div class="section-header">
+          <h2>학급 게임 관리</h2>
+          <button id="add-game-btn" class="btn-primary">+ 게임 추가</button>
+        </div>
+        <p class="hint">학생들이 학급 통장 안에서 접근할 수 있는 게임을 등록합니다 (외부 URL 또는 안내문)</p>
+        <div id="games-list" class="card-grid"></div>
+      </div>
+
+      <!-- 통계 -->
+      <div id="tab-stats" class="tab-content">
+        <div class="section-header">
+          <h2>📈 통계</h2>
+          <button id="view-savings-btn" class="btn-secondary">전체 적금 현황</button>
+        </div>
+        <div id="stats-container">
+          <div class="empty-state">탭을 클릭하면 통계가 로드됩니다</div>
+        </div>
+      </div>
+
+      <!-- 거래 내역 -->
+      <div id="tab-transactions" class="tab-content">
+        <div class="section-header">
+          <h2>전체 거래 내역</h2>
+          <button id="export-csv-btn" class="btn-secondary">CSV 내보내기</button>
+        </div>
+        <div class="card">
+          <div class="form-row">
+            <select id="tx-filter-type">
+              <option value="">전체 유형</option>
+              <option value="transfer">송금</option>
+              <option value="tax">세금</option>
+              <option value="salary">월급</option>
+              <option value="payment">지급</option>
+              <option value="purchase">구매</option>
+              <option value="deposit">예금</option>
+              <option value="interest">이자</option>
+              <option value="treasury_spend">국고지출</option>
+            </select>
+            <select id="tx-filter-student">
+              <option value="">전체 학생</option>
+            </select>
+          </div>
+        </div>
+        <div id="transactions-list" class="transaction-list"></div>
+      </div>
+
+      <!-- 설정 -->
+      <div id="tab-settings" class="tab-content">
+        <div class="section-header"><h2>학급 설정</h2></div>
+
+        <div class="card">
+          <h3>📅 자동 월급 지급</h3>
+          <p class="hint">활성화하면 새 달에 처음 로그인할 때 월급 자동 지급 여부를 묻습니다 (직업이 배정된 학생 대상).</p>
+          <label style="display:flex;align-items:center;gap:10px;cursor:pointer">
+            <input type="checkbox" id="auto-salary-toggle" style="width:20px;height:20px" />
+            <span>자동 월급 지급 활성화</span>
+          </label>
+        </div>
+
+        <div class="card">
+          <h3>💱 거래 한도</h3>
+          <p class="hint">학생 간 1회 송금 최대 금액을 정합니다. 0 또는 비워두면 한도 없음.</p>
+          <div class="form-row">
+            <input type="number" id="setting-max-transfer" placeholder="예: 1000" min="0" />
+            <button id="save-max-transfer" class="btn-primary">저장</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>🏛️ 국고</h3>
+          <p class="hint">학생들이 낸 세금/벌금/구매 대금이 모이는 곳입니다. 학급 행사·기부 등에 사용 후 잔액을 조정할 수 있습니다.</p>
+          <p style="font-size:24px;font-weight:700;margin:12px 0">현재 국고: <span id="treasury-balance">0원</span></p>
+          <div class="form-row">
+            <input type="number" id="treasury-amount" placeholder="금액" min="1" />
+            <input type="text" id="treasury-reason" placeholder="사용 사유" />
+            <button id="treasury-spend-btn" class="btn-primary">국고 지출</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>🔑 교사 비밀번호 변경</h3>
+          <div class="form-row">
+            <input type="password" id="new-teacher-pw" placeholder="새 비밀번호" minlength="4" />
+            <button id="change-teacher-pw" class="btn-primary">변경</button>
+          </div>
+        </div>
+
+        <div class="card" style="border:1px solid #FCA5A5">
+          <h3 style="color:#DC2626">⚠️ 데이터 초기화</h3>
+          <p class="hint">모든 거래 내역을 삭제합니다 (학생/직업/게임/물품/목표는 유지). 새 학년 시작 시 사용하세요.</p>
+          <button id="reset-transactions-btn" class="btn-danger" style="padding:10px 16px">거래 내역 초기화</button>
+        </div>
+      </div>
+    </main>
+  </section>
+
+  <!-- ========== 학생용 페이지 ========== -->
+  <section id="student-screen" class="screen">
+    <header class="app-header">
+      <div class="header-left">
+        <span class="header-logo">💰 학급 통장</span>
+        <span class="header-badge student-badge">학생</span>
+      </div>
+      <div class="header-right">
+        <span id="student-name">학생</span>
+        <button id="student-logout" class="btn-text">로그아웃</button>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <div class="balance-card">
+        <p class="balance-label">내 잔액</p>
+        <h2 id="student-balance">0원</h2>
+        <div class="balance-info">
+          <span>직업: <strong id="student-job">미배정</strong></span>
+          <span>월급: <strong id="student-salary">0원</strong></span>
+        </div>
+      </div>
+
+      <div class="action-grid action-grid-3">
+        <button class="action-btn" data-action="transfer">
+          <span class="action-icon">💸</span>
+          <span>송금</span>
+        </button>
+        <button class="action-btn" data-action="tax">
+          <span class="action-icon">📋</span>
+          <span>세금 납부</span>
+        </button>
+        <button class="action-btn" data-action="shop">
+          <span class="action-icon">🛒</span>
+          <span>학급 가게</span>
+        </button>
+        <button class="action-btn" data-action="savings">
+          <span class="action-icon">🏦</span>
+          <span>적금</span>
+        </button>
+        <button class="action-btn" data-action="goals">
+          <span class="action-icon">🎯</span>
+          <span>학급 목표</span>
+        </button>
+        <button class="action-btn" data-action="games">
+          <span class="action-icon">🎮</span>
+          <span>학급 게임</span>
+        </button>
+        <button class="action-btn" data-action="history">
+          <span class="action-icon">📊</span>
+          <span>거래 내역</span>
+        </button>
+      </div>
+
+      <div class="card">
+        <h3>최근 거래</h3>
+        <div id="my-transactions" class="transaction-list"></div>
+      </div>
+
+      <div class="card">
+        <h3>🔑 내 비밀번호 변경</h3>
+        <div class="form-row">
+          <input type="password" id="my-new-pw" placeholder="새 비밀번호" minlength="4" />
+          <button id="change-my-pw" class="btn-primary">변경</button>
+        </div>
+      </div>
+    </main>
+  </section>
+
+  <!-- ========== 모달 ========== -->
+  <div id="modal-overlay" class="modal-overlay">
+    <div class="modal" id="modal-content"></div>
+  </div>
+
+  <!-- 토스트 -->
+  <div id="toast" class="toast"></div>
+
+  <script type="module" src="firebase-config.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
