@@ -104,11 +104,17 @@
     <nav class="tab-nav">
       <button class="tab-btn active" data-tab="overview">대시보드</button>
       <button class="tab-btn" data-tab="students">학생 관리</button>
+      <button class="tab-btn" data-tab="credit">신용도</button>
+      <button class="tab-btn" data-tab="savings">적금 관리</button>
       <button class="tab-btn" data-tab="payment">급여/지급</button>
       <button class="tab-btn" data-tab="jobs">직업 관리</button>
       <button class="tab-btn" data-tab="shop">학급 가게</button>
       <button class="tab-btn" data-tab="goals">학급 목표</button>
       <button class="tab-btn" data-tab="games">게임 관리</button>
+      <button class="tab-btn" data-tab="messages">
+        💬 메시지
+        <span id="teacher-msg-tab-badge" class="tab-badge" style="display:none">0</span>
+      </button>
       <button class="tab-btn" data-tab="stats">통계</button>
       <button class="tab-btn" data-tab="transactions">거래 내역</button>
       <button class="tab-btn" data-tab="settings">설정</button>
@@ -151,6 +157,38 @@
           </div>
         </div>
         <div id="students-list" class="card-grid"></div>
+      </div>
+
+      <!-- 신용도 관리 -->
+      <div id="tab-credit" class="tab-content">
+        <div class="section-header">
+          <h2>⭐ 신용도 관리</h2>
+          <div style="display:flex;gap:8px">
+            <button id="bulk-credit-btn" class="btn-secondary">전체 일괄 조정</button>
+            <button id="credit-history-btn" class="btn-secondary">변동 이력</button>
+          </div>
+        </div>
+        <p class="hint">학생들의 신용 등급을 한눈에 확인하고 직접 조정합니다. ±1, ±5점 빠른 버튼 또는 일괄 조정으로 신용도를 관리하세요.</p>
+        <div id="credit-summary" class="stat-grid" style="margin-bottom:16px"></div>
+        <div id="credit-students-list"></div>
+      </div>
+
+      <!-- 적금 관리 -->
+      <div id="tab-savings" class="tab-content">
+        <div class="section-header">
+          <h2>🏦 적금 관리</h2>
+          <div style="display:flex;gap:8px">
+            <select id="savings-filter" style="padding:8px 12px;border:1.5px solid #E5E7EB;border-radius:8px;font-size:14px">
+              <option value="active">진행 중</option>
+              <option value="matured">만기 도달</option>
+              <option value="all">전체</option>
+              <option value="completed">해지/완료</option>
+            </select>
+          </div>
+        </div>
+        <p class="hint">학생들의 적금 가입 현황과 만기 상태를 확인합니다. 만기된 적금은 학생이 직접 "받기" 버튼을 눌러야 환급됩니다.</p>
+        <div id="savings-summary" class="stat-grid" style="margin-bottom:16px"></div>
+        <div id="savings-list" style="display:flex;flex-direction:column;gap:8px"></div>
       </div>
 
       <!-- 급여/지급 -->
@@ -241,14 +279,21 @@
         <div id="games-list" class="card-grid"></div>
       </div>
 
+      <!-- 메시지 -->
+      <div id="tab-messages" class="tab-content">
+        <div class="section-header">
+          <h2>💬 메시지</h2>
+        </div>
+        <p class="hint">학생들이 보낸 메시지를 확인하고 답장하거나, 새 메시지를 보낼 수 있습니다. 안 읽은 메시지는 파란 배경으로 표시됩니다.</p>
+        <div id="teacher-messages-container">
+          <div class="empty-state">메시지 탭을 클릭하면 로드됩니다</div>
+        </div>
+      </div>
+
       <!-- 통계 -->
       <div id="tab-stats" class="tab-content">
         <div class="section-header">
           <h2>📈 통계</h2>
-          <div style="display:flex;gap:8px">
-            <button id="view-credit-btn" class="btn-secondary">⭐ 신용도 관리</button>
-            <button id="view-savings-btn" class="btn-secondary">전체 적금 현황</button>
-          </div>
         </div>
         <div id="stats-container">
           <div class="empty-state">탭을 클릭하면 통계가 로드됩니다</div>
@@ -384,9 +429,10 @@
           <span class="action-icon">🎮</span>
           <span>학급 게임</span>
         </button>
-        <button class="action-btn" data-action="messages">
-          <span class="action-icon">📨</span>
-          <span>선생님께 메시지</span>
+        <button class="action-btn" data-action="messages" style="position:relative">
+          <span class="action-icon">💬</span>
+          <span>메시지함</span>
+          <span id="student-msg-action-badge" class="action-badge" style="display:none">0</span>
         </button>
         <button class="action-btn" data-action="history">
           <span class="action-icon">📊</span>

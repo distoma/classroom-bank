@@ -40,14 +40,14 @@ export function subscribeUnreadCount(userId, role) {
   // 학생: receiverId === 자기 ID && read === false 인 메시지 수
   const receiverId = role === TEACHER_ROLE ? 'TEACHER' : userId;
 
+  // 인덱스 회피: where 1개만 사용, read 필터는 클라이언트에서
   const q = query(
     collection(db, 'messages'),
-    where('receiverId', '==', receiverId),
-    where('read', '==', false)
+    where('receiverId', '==', receiverId)
   );
 
   return onSnapshot(q, (snap) => {
-    const count = snap.size;
+    const count = snap.docs.filter(d => d.data().read === false).length;
     if (__unreadCountCallback) __unreadCountCallback(count);
   });
 }
@@ -147,6 +147,7 @@ export function openComposeModalForTeacher(students) {
 
       closeModal();
       toast(`${receiverIds.length}명에게 메시지 발송 완료`, 'success');
+      refreshActiveMsgView();
     } catch (err) {
       toast('실패: ' + err.message, 'error');
     }
@@ -238,24 +239,24 @@ export function openComposeModalForStudent() {
 export async function openInbox(currentUser, role) {
   const receiverId = role === TEACHER_ROLE ? 'TEACHER' : currentUser.uid;
 
-  // 받은 메시지 조회
+  // 받은 메시지 조회 (인덱스 회피)
   const snap = await getDocs(query(
     collection(db, 'messages'),
-    where('receiverId', '==', receiverId),
-    orderBy('createdAt', 'desc'),
-    limit(100)
+    where('receiverId', '==', receiverId)
   ));
-  const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const messages = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+    .slice(0, 100);
 
-  // 보낸 메시지도 조회 (대화 흐름 보기 위해)
+  // 보낸 메시지도 조회
   const senderId = role === TEACHER_ROLE ? 'TEACHER' : currentUser.uid;
   const sentSnap = await getDocs(query(
     collection(db, 'messages'),
-    where('senderId', '==', senderId),
-    orderBy('createdAt', 'desc'),
-    limit(50)
+    where('senderId', '==', senderId)
   ));
-  const sentMessages = sentSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const sentMessages = sentSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+    .slice(0, 50);
 
   const unreadCount = messages.filter(m => !m.read).length;
   const composeBtnLabel = role === TEACHER_ROLE ? '학생에게 보내기' : '선생님께 보내기';
@@ -484,6 +485,7 @@ window.openTeacherReplyTo = (studentId, studentName) => {
 
     closeModal();
     toast('답장 발송 완료', 'success');
+    refreshActiveMsgView();
   });
 };
 
@@ -493,7 +495,18 @@ window.deleteMessage = async (msgId) => {
   await deleteDoc(doc(db, 'messages', msgId));
   closeModal();
   toast('메시지가 삭제되었습니다');
+  refreshActiveMsgView();
 };
+
+// 활성화된 메시지 화면 자동 갱신
+function refreshActiveMsgView() {
+  // 교사 메시지 탭이 활성이면 갱신
+  if (document.getElementById('tab-messages')?.classList.contains('active')) {
+    renderTeacherMessagesTab(__cachedStudents);
+  }
+  // 학생이 메시지함을 보고 있으면 다시 열기 (모달이 이미 닫혔으므로)
+  // closeModal 호출 후라 학생 모달은 자동 갱신 불필요 (학생은 모달 닫고 다시 열면 됨)
+}
 
 // 컴포즈 모달 진입점 (window 전역)
 window.openMsgComposeTeacher = () => {
@@ -506,4 +519,255 @@ window.openMsgComposeTeacher = () => {
 
 window.openMsgComposeStudent = () => {
   openComposeModalForStudent();
+};
+
+// ============================================
+// 교사: 메시지 탭 인라인 렌더링
+// ============================================
+let __teacherMsgFilter = 'received'; // 'received' | 'sent'
+
+export async function renderTeacherMessagesTab(students) {
+  const container = document.getElementById('teacher-messages-container');
+  if (!container) return;
+
+  __cachedStudents = students;
+  container.innerHTML = '<div class="empty-state">메시지를 불러오는 중...</div>';
+
+  try {
+    // 받은 메시지 (학생들로부터)
+    const receivedSnap = await getDocs(query(
+      collection(db, 'messages'),
+      where('receiverId', '==', 'TEACHER')
+    ));
+    const received = receivedSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
+    // 보낸 메시지 (교사가 학생들에게)
+    const sentSnap = await getDocs(query(
+      collection(db, 'messages'),
+      where('senderId', '==', 'TEACHER')
+    ));
+    const sent = sentSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
+    const unreadCount = received.filter(m => !m.read).length;
+    const messages = __teacherMsgFilter === 'received' ? received : sent;
+
+    container.innerHTML = `
+      <!-- 요약 카드 -->
+      <div class="stat-grid" style="margin-bottom:16px">
+        <div class="stat-card" style="background:${unreadCount > 0 ? '#FEE2E2' : '#F9FAFB'}">
+          <p class="stat-label">📩 안 읽은 메시지</p>
+          <h2 style="color:${unreadCount > 0 ? '#DC2626' : '#6B7280'}">${unreadCount}건</h2>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">받은 메시지 총</p>
+          <h2>${received.length}건</h2>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">보낸 메시지 총</p>
+          <h2>${sent.length}건</h2>
+        </div>
+      </div>
+
+      <!-- 탭 + 액션 -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;gap:4px;border-bottom:1px solid #E5E7EB">
+          <button class="msg-tab-btn ${__teacherMsgFilter === 'received' ? 'active' : ''}"
+            onclick="window.switchTeacherMsgFilter('received')"
+            style="background:none;border:none;border-bottom:2px solid ${__teacherMsgFilter === 'received' ? '#4F7CFF' : 'transparent'};color:${__teacherMsgFilter === 'received' ? '#4F7CFF' : '#6B7280'};padding:10px 16px;cursor:pointer;font-weight:600;font-family:inherit">
+            📥 받은 메시지 ${unreadCount > 0 ? `<span style="background:#EF4444;color:white;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px">${unreadCount}</span>` : ''}
+          </button>
+          <button class="msg-tab-btn ${__teacherMsgFilter === 'sent' ? 'active' : ''}"
+            onclick="window.switchTeacherMsgFilter('sent')"
+            style="background:none;border:none;border-bottom:2px solid ${__teacherMsgFilter === 'sent' ? '#4F7CFF' : 'transparent'};color:${__teacherMsgFilter === 'sent' ? '#4F7CFF' : '#6B7280'};padding:10px 16px;cursor:pointer;font-weight:500;font-family:inherit">
+            📤 보낸 메시지
+          </button>
+        </div>
+        <button class="btn-primary" onclick="window.openMsgComposeTeacher()">+ 새 메시지 작성</button>
+      </div>
+
+      <!-- 메시지 리스트 -->
+      <div style="display:flex;flex-direction:column;gap:8px">
+        ${messages.length === 0
+          ? `<div class="empty-state">${__teacherMsgFilter === 'received' ? '받은 메시지가 없습니다.' : '보낸 메시지가 없습니다.'}</div>`
+          : messages.map(m => renderTeacherMsgCard(m, __teacherMsgFilter === 'received')).join('')
+        }
+      </div>
+    `;
+  } catch (err) {
+    console.error('메시지 로드 실패:', err);
+    container.innerHTML = `<div class="empty-state" style="color:#EF4444">메시지 로드 실패: ${err.message}</div>`;
+  }
+}
+
+function renderTeacherMsgCard(m, isReceived) {
+  const date = m.createdAt?.toDate ? formatDate(m.createdAt.toDate()) : '';
+
+  let counterpartLabel, counterpartId;
+  if (isReceived) {
+    // 학생이 보낸 것
+    counterpartLabel = m.senderNumber
+      ? `🎒 ${m.senderNumber}번 ${m.senderName}`
+      : `🎒 ${m.senderName}`;
+    counterpartId = m.senderId;
+  } else {
+    // 교사가 보낸 것 → 받은 학생 표시
+    if (m.isAnnouncement) {
+      counterpartLabel = '📢 전체 학생';
+    } else {
+      const student = __cachedStudents.find(s => s.id === m.receiverId);
+      counterpartLabel = student ? `🎒 ${student.number}번 ${student.name}` : `🎒 ${m.receiverId}`;
+    }
+    counterpartId = m.receiverId;
+  }
+
+  const unreadDot = isReceived && !m.read
+    ? '<span style="display:inline-block;width:8px;height:8px;background:#EF4444;border-radius:50%;margin-right:6px"></span>'
+    : '';
+  const announcementBadge = m.isAnnouncement
+    ? '<span style="background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:4px;font-size:10px;margin-left:4px">전체</span>'
+    : '';
+  const readBadge = !isReceived
+    ? (m.read
+      ? '<span style="background:#ECFDF5;color:#059669;padding:2px 6px;border-radius:4px;font-size:10px">읽음</span>'
+      : '<span style="background:#F3F4F6;color:#6B7280;padding:2px 6px;border-radius:4px;font-size:10px">안읽음</span>')
+    : '';
+
+  const bgColor = isReceived && !m.read ? '#EEF2FF' : '#F9FAFB';
+  const previewBody = m.body.length > 80 ? m.body.slice(0, 80) + '…' : m.body;
+
+  // 받은 메시지에 답장 버튼 추가 (학생에게 답장)
+  const replyBtn = isReceived
+    ? `<button class="btn-secondary" onclick="event.stopPropagation(); window.openTeacherReplyTo('${counterpartId}', '${escapeHtml(m.senderName).replace(/'/g, "\\'")}')" style="font-size:12px;padding:5px 10px">답장</button>`
+    : '';
+
+  return `
+    <div class="msg-item" onclick="window.openMessageDetail('${m.id}', ${isReceived})"
+      style="cursor:pointer;padding:14px;background:${bgColor};border-radius:8px;border:1px solid #E5E7EB;transition:background 0.15s">
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:8px;margin-bottom:6px">
+        <div style="font-weight:600;font-size:14px;flex:1;min-width:0">
+          ${unreadDot}${escapeHtml(counterpartLabel)}${announcementBadge}
+        </div>
+        <div style="font-size:11px;color:#6B7280;white-space:nowrap">${date} ${readBadge}</div>
+      </div>
+      ${m.title ? `<div style="font-size:13px;font-weight:500;margin-bottom:4px">${escapeHtml(m.title)}</div>` : ''}
+      <div style="font-size:13px;color:#4B5563;line-height:1.5;margin-bottom:${replyBtn ? '8px' : '0'}">${escapeHtml(previewBody)}</div>
+      ${replyBtn ? `<div style="display:flex;justify-content:flex-end">${replyBtn}</div>` : ''}
+    </div>
+  `;
+}
+
+window.switchTeacherMsgFilter = (filter) => {
+  __teacherMsgFilter = filter;
+  renderTeacherMessagesTab(__cachedStudents);
+};
+
+// ============================================
+// 학생: 메시지함 인라인 렌더링 (모달이 아닌 페이지 형태)
+// ============================================
+let __studentMsgFilter = 'received';
+
+export async function openStudentInbox(currentUser) {
+  __studentCtx = currentUser;
+
+  // 받은 메시지 (선생님으로부터)
+  const receivedSnap = await getDocs(query(
+    collection(db, 'messages'),
+    where('receiverId', '==', currentUser.uid)
+  ));
+  const received = receivedSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
+  // 보낸 메시지 (학생이 선생님께)
+  const sentSnap = await getDocs(query(
+    collection(db, 'messages'),
+    where('senderId', '==', currentUser.uid)
+  ));
+  const sent = sentSnap.docs.map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+
+  const unreadCount = received.filter(m => !m.read).length;
+  const messages = __studentMsgFilter === 'received' ? received : sent;
+
+  openModal(`
+    <h2>📬 메시지함</h2>
+
+    <!-- 요약 -->
+    <div style="background:${unreadCount > 0 ? '#FEE2E2' : '#F9FAFB'};padding:12px;border-radius:8px;margin-bottom:12px;text-align:center">
+      ${unreadCount > 0
+        ? `<strong style="color:#DC2626">📩 안 읽은 메시지가 ${unreadCount}건 있어요!</strong>`
+        : `<span style="color:#6B7280">새 메시지가 없어요</span>`
+      }
+    </div>
+
+    <!-- 탭 -->
+    <div style="display:flex;gap:4px;border-bottom:1px solid #E5E7EB;margin-bottom:12px">
+      <button class="msg-tab-btn"
+        onclick="window.switchStudentMsgFilter('received')"
+        style="background:none;border:none;border-bottom:2px solid ${__studentMsgFilter === 'received' ? '#4F7CFF' : 'transparent'};color:${__studentMsgFilter === 'received' ? '#4F7CFF' : '#6B7280'};padding:10px 16px;cursor:pointer;font-weight:600;font-family:inherit">
+        📥 받은 메시지 ${unreadCount > 0 ? `<span style="background:#EF4444;color:white;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px">${unreadCount}</span>` : ''}
+      </button>
+      <button class="msg-tab-btn"
+        onclick="window.switchStudentMsgFilter('sent')"
+        style="background:none;border:none;border-bottom:2px solid ${__studentMsgFilter === 'sent' ? '#4F7CFF' : 'transparent'};color:${__studentMsgFilter === 'sent' ? '#4F7CFF' : '#6B7280'};padding:10px 16px;cursor:pointer;font-weight:500;font-family:inherit">
+        📤 보낸 메시지
+      </button>
+    </div>
+
+    <!-- 메시지 리스트 -->
+    <div style="display:flex;flex-direction:column;gap:8px;max-height:50vh;overflow-y:auto">
+      ${messages.length === 0
+        ? `<div class="empty-state">${__studentMsgFilter === 'received' ? '받은 메시지가 없어요' : '보낸 메시지가 없어요'}</div>`
+        : messages.map(m => renderStudentMsgCard(m, __studentMsgFilter === 'received')).join('')
+      }
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="window.closeModal()">닫기</button>
+      <button class="btn-primary" onclick="window.openMsgComposeStudent()">✏️ 선생님께 메시지</button>
+    </div>
+  `);
+}
+
+function renderStudentMsgCard(m, isReceived) {
+  const date = m.createdAt?.toDate ? formatDate(m.createdAt.toDate()) : '';
+
+  // 학생 입장에서는 상대방이 항상 선생님
+  const counterpartLabel = '👩‍🏫 선생님';
+
+  const unreadDot = isReceived && !m.read
+    ? '<span style="display:inline-block;width:8px;height:8px;background:#EF4444;border-radius:50%;margin-right:6px"></span>'
+    : '';
+  const announcementBadge = m.isAnnouncement
+    ? '<span style="background:#FEF3C7;color:#92400E;padding:2px 6px;border-radius:4px;font-size:10px;margin-left:4px">전체 공지</span>'
+    : '';
+  const readBadge = !isReceived
+    ? (m.read
+      ? '<span style="background:#ECFDF5;color:#059669;padding:2px 6px;border-radius:4px;font-size:10px">선생님이 읽음</span>'
+      : '<span style="background:#F3F4F6;color:#6B7280;padding:2px 6px;border-radius:4px;font-size:10px">아직 안읽음</span>')
+    : '';
+
+  const bgColor = isReceived && !m.read ? '#EEF2FF' : '#F9FAFB';
+  const borderColor = isReceived && !m.read ? '#C7D2FE' : '#E5E7EB';
+  const previewBody = m.body.length > 80 ? m.body.slice(0, 80) + '…' : m.body;
+
+  return `
+    <div class="msg-item" onclick="window.openMessageDetail('${m.id}', ${isReceived})"
+      style="cursor:pointer;padding:14px;background:${bgColor};border-radius:8px;border:1px solid ${borderColor};transition:background 0.15s">
+      <div style="display:flex;justify-content:space-between;align-items:start;gap:8px;margin-bottom:6px">
+        <div style="font-weight:600;font-size:14px;flex:1;min-width:0">
+          ${unreadDot}${escapeHtml(counterpartLabel)}${announcementBadge}
+        </div>
+        <div style="font-size:11px;color:#6B7280;white-space:nowrap">${date} ${readBadge}</div>
+      </div>
+      ${m.title ? `<div style="font-size:13px;font-weight:500;margin-bottom:4px">${escapeHtml(m.title)}</div>` : ''}
+      <div style="font-size:13px;color:#4B5563;line-height:1.5">${escapeHtml(previewBody)}</div>
+    </div>
+  `;
+}
+
+window.switchStudentMsgFilter = (filter) => {
+  __studentMsgFilter = filter;
+  if (__studentCtx) openStudentInbox(__studentCtx);
 };

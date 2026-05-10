@@ -109,13 +109,13 @@ export async function openSavingsModal(currentUser) {
   const tier = getCreditTier(score);
   const toNext = getScoreToNextTier(score);
 
-  // 본인 적금 목록
+  // 본인 적금 목록 (인덱스 회피: orderBy는 클라이언트에서)
   const snap = await getDocs(query(
     collection(db, 'savings'),
-    where('studentId', '==', currentUser.uid),
-    orderBy('createdAt', 'desc')
+    where('studentId', '==', currentUser.uid)
   ));
-  const mySavings = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const mySavings = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
   const active = mySavings.filter(s => !s.withdrawn);
 
   openModal(`
@@ -513,3 +513,323 @@ window.adjustCredit = async (studentId, delta) => {
     openCreditManagementModal(students);
   }, 300);
 };
+
+// ============================================
+// 교사: 신용도 탭 인라인 렌더링
+// ============================================
+export function renderCreditTab(students) {
+  // 등급별 분포
+  const tierGroups = {};
+  CREDIT_TIERS.forEach(t => tierGroups[t.tier] = []);
+  students.forEach(s => {
+    const score = s.creditScore ?? STARTING_CREDIT_SCORE;
+    const tier = getCreditTier(score);
+    tierGroups[tier.tier].push({ ...s, score, tier });
+  });
+
+  // 등급 분포 카드
+  const summary = document.getElementById('credit-summary');
+  if (summary) {
+    summary.innerHTML = CREDIT_TIERS.map(t => `
+      <div class="stat-card" style="background:${t.color}11;border:1px solid ${t.color}55">
+        <p class="stat-label">${t.emoji} ${t.tier}등급 (${t.name})</p>
+        <h2 style="color:${t.color}">${tierGroups[t.tier].length}명</h2>
+      </div>
+    `).join('');
+  }
+
+  // 학생 목록 (점수 높은 순)
+  const list = document.getElementById('credit-students-list');
+  if (!list) return;
+  if (students.length === 0) {
+    list.innerHTML = '<div class="empty-state">학생이 없습니다.</div>';
+    return;
+  }
+
+  const sortedStudents = students
+    .map(s => ({ ...s, score: s.creditScore ?? STARTING_CREDIT_SCORE }))
+    .sort((a, b) => b.score - a.score);
+
+  list.innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:6px">
+      ${sortedStudents.map(s => {
+        const tier = getCreditTier(s.score);
+        const toNext = getScoreToNextTier(s.score);
+        return `
+          <div class="credit-row" style="display:flex;align-items:center;gap:10px;padding:12px;background:#F9FAFB;border-radius:8px;border-left:4px solid ${tier.color}">
+            <div style="font-size:20px;min-width:90px">${tier.emoji}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;font-size:14px">${escapeHtml(s.number + '번 ' + s.name)}</div>
+              <div style="font-size:12px;color:#6B7280;margin-top:2px">
+                <span style="color:${tier.color};font-weight:600">${tier.tier}등급 ${tier.name}</span> ·
+                ${s.score}점 ·
+                이자배율 <strong>${tier.rateMultiplier}배</strong>
+                ${toNext !== null ? ` · 다음 등급까지 ${toNext}점` : ' · 최고등급!'}
+              </div>
+            </div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
+              <button class="btn-secondary" onclick="window.adjustCreditInline('${s.id}', 5)" style="font-size:12px;padding:5px 10px;color:#10B981;font-weight:600">+5</button>
+              <button class="btn-secondary" onclick="window.adjustCreditInline('${s.id}', 1)" style="font-size:12px;padding:5px 10px;color:#10B981;font-weight:600">+1</button>
+              <button class="btn-secondary" onclick="window.adjustCreditInline('${s.id}', -1)" style="font-size:12px;padding:5px 10px;color:#EF4444;font-weight:600">-1</button>
+              <button class="btn-secondary" onclick="window.adjustCreditInline('${s.id}', -5)" style="font-size:12px;padding:5px 10px;color:#EF4444;font-weight:600">-5</button>
+              <button class="btn-secondary" onclick="window.openCreditCustom('${s.id}')" style="font-size:12px;padding:5px 10px">사용자 입력</button>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+// 인라인 신용도 조정 (탭 새로고침 자동)
+window.adjustCreditInline = async (studentId, delta) => {
+  const reason = prompt(`신용도 ${delta > 0 ? '+' : ''}${delta}점 사유:`, '교사 조정');
+  if (reason === null) return;
+  await changeCreditScore(studentId, delta, reason || '교사 조정');
+  toast(`신용도 ${delta > 0 ? '+' : ''}${delta}점 적용`, 'success');
+  // cachedStudents가 onSnapshot으로 업데이트되면 자동으로 탭 새로고침됨
+};
+
+// 사용자 정의 점수 입력
+window.openCreditCustom = async (studentId) => {
+  const snap = await getDoc(doc(db, 'students', studentId));
+  if (!snap.exists()) return;
+  const s = snap.data();
+  const currentScore = s.creditScore ?? STARTING_CREDIT_SCORE;
+
+  openModal(`
+    <h2>신용도 조정 - ${escapeHtml(s.name)}</h2>
+    <p class="hint">현재 점수: ${currentScore}점</p>
+    <form id="credit-custom-form" class="modal-form">
+      <div class="input-group">
+        <label>변경할 점수 (음수 가능, 예: -3, +10)</label>
+        <input type="number" id="cc-delta" required placeholder="예: 5" />
+      </div>
+      <div class="input-group">
+        <label>사유</label>
+        <input type="text" id="cc-reason" required placeholder="예: 학급봉사 활동" />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick="window.closeModal()">취소</button>
+        <button type="submit" class="btn-primary">조정</button>
+      </div>
+    </form>
+  `);
+
+  document.getElementById('credit-custom-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const delta = parseInt(document.getElementById('cc-delta').value);
+    const reason = document.getElementById('cc-reason').value.trim();
+    if (delta === 0) { toast('0이 아닌 값을 입력하세요', 'error'); return; }
+    await changeCreditScore(studentId, delta, reason);
+    closeModal();
+    toast(`신용도 ${delta > 0 ? '+' : ''}${delta}점 적용`, 'success');
+  });
+};
+
+// 전체 일괄 조정
+export function openBulkCreditModal(students) {
+  openModal(`
+    <h2>전체 학생 신용도 일괄 조정</h2>
+    <p class="hint">선택한 학생 모두에게 같은 점수를 한 번에 적용합니다.</p>
+    <form id="bulk-credit-form" class="modal-form">
+      <div class="input-group">
+        <label>대상 학생</label>
+        <div style="background:#F9FAFB;padding:10px;border-radius:8px;border:1px solid #E5E7EB">
+          <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer">
+            <input type="checkbox" id="bulk-cr-all" checked onchange="window.toggleBulkCreditAll(this.checked)" />
+            <strong>전체 선택</strong> (${students.length}명)
+          </label>
+          <div style="max-height:140px;overflow-y:auto;display:flex;flex-direction:column;gap:4px">
+            ${students.map(s => `
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                <input type="checkbox" class="bulk-cr-student" value="${s.id}" checked />
+                ${s.number}번 ${escapeHtml(s.name)}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="input-group">
+        <label>변경 점수 (음수 가능)</label>
+        <input type="number" id="bulk-cr-delta" required placeholder="예: 3 또는 -5" />
+      </div>
+      <div class="input-group">
+        <label>사유</label>
+        <input type="text" id="bulk-cr-reason" required placeholder="예: 학급 행사 참여" />
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick="window.closeModal()">취소</button>
+        <button type="submit" class="btn-primary">일괄 적용</button>
+      </div>
+    </form>
+  `);
+
+  document.getElementById('bulk-credit-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const ids = Array.from(document.querySelectorAll('.bulk-cr-student:checked')).map(c => c.value);
+    const delta = parseInt(document.getElementById('bulk-cr-delta').value);
+    const reason = document.getElementById('bulk-cr-reason').value.trim();
+    if (ids.length === 0) { toast('학생을 선택하세요', 'error'); return; }
+    if (delta === 0) { toast('0이 아닌 값', 'error'); return; }
+    if (!confirm(`${ids.length}명에게 ${delta > 0 ? '+' : ''}${delta}점 적용합니다. 진행할까요?`)) return;
+
+    for (const id of ids) {
+      await changeCreditScore(id, delta, reason);
+    }
+    closeModal();
+    toast(`${ids.length}명에게 신용도 ${delta > 0 ? '+' : ''}${delta}점 적용 완료`, 'success');
+  });
+}
+
+window.toggleBulkCreditAll = (checked) => {
+  document.querySelectorAll('.bulk-cr-student').forEach(c => c.checked = checked);
+};
+
+// 신용도 변동 이력 모달
+export async function openCreditHistoryModal(students) {
+  const snap = await getDocs(collection(db, 'credit_history'));
+  const history = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+    .slice(0, 200);
+
+  const studentMap = Object.fromEntries(students.map(s => [s.id, s]));
+
+  openModal(`
+    <h2>📜 신용도 변동 이력</h2>
+    <p class="hint">최근 200건까지 표시됩니다.</p>
+    <div style="max-height:60vh;overflow-y:auto;display:flex;flex-direction:column;gap:6px">
+      ${history.length === 0 ? '<div class="empty-state">변동 이력이 없습니다.</div>' :
+        history.map(h => {
+          const student = studentMap[h.studentId];
+          const studentLabel = student ? `${student.number}번 ${student.name}` : h.studentId;
+          const date = h.createdAt?.toDate ? h.createdAt.toDate().toLocaleString('ko-KR') : '';
+          const isPlus = h.delta > 0;
+          return `
+            <div class="transaction-item">
+              <div class="transaction-info">
+                <div class="transaction-title">${escapeHtml(studentLabel)}</div>
+                <div class="transaction-meta">${escapeHtml(h.reason || '사유 없음')} · ${date}</div>
+              </div>
+              <div class="transaction-amount ${isPlus ? 'amount-plus' : 'amount-minus'}">
+                ${isPlus ? '+' : ''}${h.delta}점
+              </div>
+            </div>
+          `;
+        }).join('')
+      }
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="window.closeModal()">닫기</button>
+    </div>
+  `);
+}
+
+// ============================================
+// 교사: 적금 관리 탭 인라인 렌더링
+// ============================================
+export async function renderSavingsTab(students, filter = 'active') {
+  const summary = document.getElementById('savings-summary');
+  const list = document.getElementById('savings-list');
+  if (!list) return;
+
+  // 로딩 상태 표시
+  list.innerHTML = '<div class="empty-state">적금 데이터를 불러오는 중...</div>';
+
+  try {
+    const snap = await getDocs(collection(db, 'savings'));
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    const studentMap = Object.fromEntries(students.map(s => [s.id, s]));
+
+    const now = new Date();
+    const active = all.filter(s => !s.withdrawn);
+    const matured = active.filter(s => s.matureAt?.toDate && now >= s.matureAt.toDate());
+    const completed = all.filter(s => s.withdrawn);
+    const totalActive = active.reduce((sum, s) => sum + s.amount, 0);
+    const totalMatured = matured.reduce((sum, s) => sum + s.amount + Math.floor(s.amount * s.rate), 0);
+
+    // 요약 카드
+    if (summary) {
+      summary.innerHTML = `
+        <div class="stat-card">
+          <p class="stat-label">진행 중</p>
+          <h2 style="color:#4F7CFF">${active.length}건</h2>
+        </div>
+        <div class="stat-card" style="background:#FEF3C7">
+          <p class="stat-label">⏰ 만기 도달 (수령 대기)</p>
+          <h2 style="color:#D97706">${matured.length}건</h2>
+        </div>
+        <div class="stat-card">
+          <p class="stat-label">진행 중 총 예금액</p>
+          <h2 style="font-size:18px">${formatMoney(totalActive)}</h2>
+        </div>
+        <div class="stat-card" style="background:#ECFDF5">
+          <p class="stat-label">만기 환급 예정액</p>
+          <h2 style="color:#059669;font-size:18px">${formatMoney(totalMatured)}</h2>
+        </div>
+      `;
+    }
+
+    // 필터링
+    let filtered;
+    if (filter === 'active') filtered = active;
+    else if (filter === 'matured') filtered = matured;
+    else if (filter === 'completed') filtered = completed;
+    else filtered = all;
+
+    if (filtered.length === 0) {
+      list.innerHTML = '<div class="empty-state">해당하는 적금이 없습니다.</div>';
+      return;
+    }
+
+    list.innerHTML = filtered.map(s => {
+      const student = studentMap[s.studentId];
+      const studentLabel = student ? `${student.number}번 ${student.name}` : s.studentId;
+      const matureDate = s.matureAt?.toDate ? s.matureAt.toDate() : null;
+      const isMatured = matureDate && now >= matureDate;
+      const interest = Math.floor(s.amount * s.rate);
+      const total = s.amount + interest;
+      const daysLeft = matureDate ? Math.max(0, Math.ceil((matureDate - now) / (1000*60*60*24))) : 0;
+
+      let statusBadge;
+      if (s.withdrawn) {
+        statusBadge = s.withdrawnEarly
+          ? '<span style="background:#FEE2E2;color:#DC2626;padding:2px 8px;border-radius:6px;font-size:12px">중도 해지</span>'
+          : '<span style="background:#ECFDF5;color:#059669;padding:2px 8px;border-radius:6px;font-size:12px">만기 수령 완료</span>';
+      } else if (isMatured) {
+        statusBadge = '<span style="background:#FEF3C7;color:#D97706;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600">⏰ 만기 도달 (학생 수령 대기)</span>';
+      } else {
+        statusBadge = `<span style="background:#EEF2FF;color:#4F46E5;padding:2px 8px;border-radius:6px;font-size:12px">D-${daysLeft}</span>`;
+      }
+
+      return `
+        <div class="savings-card" style="padding:14px;${isMatured && !s.withdrawn ? 'border-color:#FCD34D;border-width:2px' : ''}">
+          <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:6px">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;font-size:14px;margin-bottom:4px">
+                ${escapeHtml(studentLabel)} - ${s.weeks || '?'}주 적금
+              </div>
+              <div style="font-size:12px;color:#6B7280">
+                가입 시 ${escapeHtml(s.tierName || '?')} 등급 · 이자율 <strong>${(s.rate * 100).toFixed(2)}%</strong>
+              </div>
+              <div style="font-size:12px;color:#6B7280">
+                만기일: ${formatDateOnly(matureDate)} · 가입일: ${formatDateOnly(s.createdAt?.toDate())}
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div style="font-weight:700">${formatMoney(s.amount)}</div>
+              <div style="font-size:12px;color:#10B981">+${formatMoney(interest)} 이자</div>
+              <div style="font-size:11px;color:#6B7280;margin-top:2px">만기: ${formatMoney(total)}</div>
+            </div>
+          </div>
+          <div>${statusBadge}</div>
+        </div>
+      `;
+    }).join('');
+
+  } catch (err) {
+    console.error('적금 로드 실패:', err);
+    list.innerHTML = `<div class="empty-state" style="color:#EF4444">적금 데이터 로드 실패: ${err.message}</div>`;
+  }
+}

@@ -218,8 +218,9 @@ window.deleteTaxBill = async (billId) => {
 // 교사가 연체 처리 일괄 실행
 window.processOverdue = async () => {
   if (!confirm('연체된 세금 모두에 대해 신용도를 감점하시겠습니까?')) return;
-  const snap = await getDocs(query(collection(db, 'tax_bills'), where('paid', '==', false), where('overdue', '==', false)));
-  const bills = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const snap = await getDocs(collection(db, 'tax_bills'));
+  const bills = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    .filter(b => !b.paid && !b.overdue);
   const now = new Date();
   let processed = 0;
 
@@ -242,13 +243,15 @@ window.processOverdue = async () => {
 // 학생: 본인의 미납 세금 조회 + 납부
 // ============================================
 export async function openMyTaxBillsModal(currentUser) {
+  // 인덱스 회피: where 1개만 사용, 나머지는 클라이언트 필터/정렬
   const snap = await getDocs(query(
     collection(db, 'tax_bills'),
-    where('studentId', '==', currentUser.uid),
-    where('paid', '==', false),
-    orderBy('dueDate', 'asc')
+    where('studentId', '==', currentUser.uid)
   ));
-  const unpaidBills = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const unpaidBills = snap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(b => !b.paid)
+    .sort((a, b) => (a.dueDate?.seconds || 0) - (b.dueDate?.seconds || 0));
 
   // 부과된 세금이 없으면 기존 자유 세금 납부 화면으로 폴백
   if (unpaidBills.length === 0) {

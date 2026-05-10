@@ -19,7 +19,9 @@ import { renderStats } from "./modules/stats.js";
 import {
   openSavingsModal, setStudentContext as setSavingsCtx,
   openAllSavingsModal, openCreditManagementModal,
-  getCreditTier, STARTING_CREDIT_SCORE
+  getCreditTier, STARTING_CREDIT_SCORE,
+  renderCreditTab, renderSavingsTab,
+  openBulkCreditModal, openCreditHistoryModal
 } from "./modules/savings.js";
 import {
   openTaxBillModal, openTaxBillsListModal,
@@ -29,7 +31,8 @@ import {
   openComposeModalForTeacher, openComposeModalForStudent, openInbox,
   setTeacherContext as setMsgTeacherCtx, setStudentContext as setMsgStudentCtx,
   setCachedStudents as setMsgStudents,
-  subscribeUnreadCount, onUnreadCountChange
+  subscribeUnreadCount, onUnreadCountChange,
+  renderTeacherMessagesTab, openStudentInbox
 } from "./modules/messages.js";
 import {
   checkAutoSalary, setAutoSalary,
@@ -211,8 +214,14 @@ function enterTeacherScreen() {
       const tabName = btn.dataset.tab;
       document.getElementById('tab-' + tabName).classList.add('active');
 
-      // 통계 탭은 클릭 시 새로 그림
+      // 클릭 시 자동 렌더링이 필요한 탭들
       if (tabName === 'stats') renderStats(cachedStudents);
+      else if (tabName === 'credit') renderCreditTab(cachedStudents);
+      else if (tabName === 'savings') {
+        const filter = document.getElementById('savings-filter')?.value || 'active';
+        renderSavingsTab(cachedStudents, filter);
+      }
+      else if (tabName === 'messages') renderTeacherMessagesTab(cachedStudents);
     };
   });
 
@@ -224,14 +233,19 @@ function enterTeacherScreen() {
   // 목표 모듈 초기화
   unsubscribers.push(initGoalsTeacher());
 
-  // 적금 현황 버튼
-  document.getElementById('view-savings-btn').addEventListener('click', () => {
-    openAllSavingsModal(cachedStudents);
+  // 신용도 탭 - 일괄 조정 버튼
+  document.getElementById('bulk-credit-btn').addEventListener('click', () => {
+    openBulkCreditModal(cachedStudents);
   });
 
-  // 신용도 관리 버튼
-  document.getElementById('view-credit-btn').addEventListener('click', () => {
-    openCreditManagementModal(cachedStudents);
+  // 신용도 탭 - 변동 이력 버튼
+  document.getElementById('credit-history-btn').addEventListener('click', () => {
+    openCreditHistoryModal(cachedStudents);
+  });
+
+  // 적금 탭 - 필터 변경 시 다시 렌더링
+  document.getElementById('savings-filter').addEventListener('change', (e) => {
+    renderSavingsTab(cachedStudents, e.target.value);
   });
 
   // 세금 부과 버튼
@@ -248,19 +262,33 @@ function enterTeacherScreen() {
   setMsgTeacherCtx(currentUser);
   setMsgStudents(cachedStudents);
 
-  // 종 버튼 → 메시지함
+  // 종 버튼 → 메시지 탭으로 이동
   document.getElementById('teacher-msg-bell').addEventListener('click', () => {
-    openInbox(currentUser, 'teacher');
+    document.querySelector('.tab-btn[data-tab="messages"]')?.click();
   });
 
-  // 안 읽은 메시지 수 실시간 업데이트
+  // 안 읽은 메시지 수 실시간 업데이트 (헤더 종 + 탭 배지)
   onUnreadCountChange((count) => {
-    const badge = document.getElementById('teacher-msg-badge');
+    const headerBadge = document.getElementById('teacher-msg-badge');
+    const tabBadge = document.getElementById('teacher-msg-tab-badge');
     if (count > 0) {
-      badge.textContent = count > 99 ? '99+' : count;
-      badge.style.display = 'inline-flex';
+      const text = count > 99 ? '99+' : count;
+      if (headerBadge) {
+        headerBadge.textContent = text;
+        headerBadge.style.display = 'inline-flex';
+      }
+      if (tabBadge) {
+        tabBadge.textContent = text;
+        tabBadge.style.display = 'inline-flex';
+      }
     } else {
-      badge.style.display = 'none';
+      if (headerBadge) headerBadge.style.display = 'none';
+      if (tabBadge) tabBadge.style.display = 'none';
+    }
+
+    // 메시지 탭이 활성화 상태면 자동 갱신
+    if (document.getElementById('tab-messages')?.classList.contains('active')) {
+      renderTeacherMessagesTab(cachedStudents);
     }
   });
   unsubscribers.push(subscribeUnreadCount(currentUser.uid, 'teacher'));
@@ -276,6 +304,15 @@ function loadTeacherData() {
       updateStudentSelects(cachedStudents);
       updateOverviewStats();
       setMsgStudents(cachedStudents);
+
+      // 신용도/적금 탭이 활성화 상태면 자동 갱신
+      if (document.getElementById('tab-credit')?.classList.contains('active')) {
+        renderCreditTab(cachedStudents);
+      }
+      if (document.getElementById('tab-savings')?.classList.contains('active')) {
+        const filter = document.getElementById('savings-filter')?.value || 'active';
+        renderSavingsTab(cachedStudents, filter);
+      }
 
       // 학생 데이터 로드되면 자동 월급 체크 (한 번만)
       if (!__autoSalaryChecked) {
@@ -324,6 +361,15 @@ function loadTeacherData() {
     }
   });
   unsubscribers.push(treasuryUnsub);
+
+  // 적금 컬렉션 변경 감지 (적금 탭 자동 갱신용)
+  const savingsUnsub = onSnapshot(collection(db, 'savings'), () => {
+    if (document.getElementById('tab-savings')?.classList.contains('active')) {
+      const filter = document.getElementById('savings-filter')?.value || 'active';
+      renderSavingsTab(cachedStudents, filter);
+    }
+  });
+  unsubscribers.push(savingsUnsub);
 
   // 설정
   const settingsUnsub = onSnapshot(doc(db, 'settings', 'main'), (snap) => {
@@ -896,17 +942,26 @@ function enterStudentScreen() {
 
   // 종 버튼 → 메시지함
   document.getElementById('student-msg-bell').onclick = () => {
-    openInbox(currentUser, 'student');
+    openStudentInbox(currentUser);
   };
 
-  // 안 읽은 메시지 수 실시간 업데이트
+  // 안 읽은 메시지 수 실시간 업데이트 (헤더 종 + 액션 버튼 배지)
   onUnreadCountChange((count) => {
-    const badge = document.getElementById('student-msg-badge');
+    const headerBadge = document.getElementById('student-msg-badge');
+    const actionBadge = document.getElementById('student-msg-action-badge');
     if (count > 0) {
-      badge.textContent = count > 99 ? '99+' : count;
-      badge.style.display = 'inline-flex';
+      const text = count > 99 ? '99+' : count;
+      if (headerBadge) {
+        headerBadge.textContent = text;
+        headerBadge.style.display = 'inline-flex';
+      }
+      if (actionBadge) {
+        actionBadge.textContent = text;
+        actionBadge.style.display = 'inline-flex';
+      }
     } else {
-      badge.style.display = 'none';
+      if (headerBadge) headerBadge.style.display = 'none';
+      if (actionBadge) actionBadge.style.display = 'none';
     }
   });
   unsubscribers.push(subscribeUnreadCount(currentUser.uid, 'student'));
@@ -927,16 +982,16 @@ function enterStudentScreen() {
   });
   unsubscribers.push(meUnsub);
 
-  // 본인 거래 내역
+  // 본인 거래 내역 (인덱스 회피: orderBy/limit는 클라이언트에서)
   const txUnsub = onSnapshot(
     query(
       collection(db, 'transactions'),
-      where('participants', 'array-contains', currentUser.uid),
-      orderBy('createdAt', 'desc'),
-      limit(20)
+      where('participants', 'array-contains', currentUser.uid)
     ),
     (snapshot) => {
-      const txs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+      const txs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+        .slice(0, 20);
       renderTransactions(txs, document.getElementById('my-transactions'), currentUser.uid);
     }
   );
@@ -972,7 +1027,7 @@ document.querySelectorAll('.action-btn').forEach(btn => {
     else if (action === 'savings') openSavingsModal(currentUser);
     else if (action === 'goals') openGoalsModal(cachedTreasuryBalance);
     else if (action === 'games') openGamesStudentModal();
-    else if (action === 'messages') openComposeModalForStudent();
+    else if (action === 'messages') openStudentInbox(currentUser);
     else if (action === 'history') openHistoryModal();
   });
 });
@@ -1101,11 +1156,11 @@ async function openGamesStudentModal() {
 async function openHistoryModal() {
   const snapshot = await getDocs(query(
     collection(db, 'transactions'),
-    where('participants', 'array-contains', currentUser.uid),
-    orderBy('createdAt', 'desc'),
-    limit(100)
+    where('participants', 'array-contains', currentUser.uid)
   ));
-  const txs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  const txs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0))
+    .slice(0, 100);
   openModal(`
     <h2>전체 거래 내역</h2>
     <div id="history-list" class="transaction-list" style="max-height:60vh;overflow-y:auto"></div>
