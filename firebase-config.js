@@ -32,12 +32,12 @@ import {
 
 // ⚠️ 여기를 본인의 Firebase 프로젝트 정보로 교체하세요
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "YOUR_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyBiowL-UZaPL7d-rg6izBJtx9e403C6D3Y",
+  authDomain: "classroom-bank-62ba8.firebaseapp.com",
+  projectId: "classroom-bank-62ba8",
+  storageBucket: "classroom-bank-62ba8.firebasestorage.app",
+  messagingSenderId: "983881467304",
+  appId: "1:983881467304:web:dd24ff93cfa81c93e5c99d"
 };
 
 // Firebase 초기화
