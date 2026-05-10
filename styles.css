@@ -1067,3 +1067,121 @@ input[type="checkbox"] {
   cursor: pointer;
   accent-color: var(--primary);
 }
+
+/* ========== 신용도 시스템 ========== */
+.student-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.credit-card {
+  transition: all 0.2s;
+}
+
+.credit-row {
+  transition: background 0.15s;
+}
+
+.credit-row:hover {
+  background: #F3F4F6 !important;
+}
+
+/* 적금 카드 - 신용 등급 색상 강조 */
+.savings-product {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: var(--bg);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  transition: all 0.15s;
+}
+
+.savings-product:hover {
+  border-color: var(--primary);
+  background: #F9FAFB;
+}
+
+@media (max-width: 600px) {
+  .credit-row {
+    flex-wrap: wrap;
+  }
+  .credit-row > div {
+    min-width: 100% !important;
+  }
+}
+
+/* ========== 메시지 종 아이콘 ========== */
+.msg-bell-btn {
+  position: relative;
+  background: none;
+  border: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+  font-family: inherit;
+}
+
+.msg-bell-btn:hover {
+  background: var(--bg);
+}
+
+.msg-bell-icon {
+  font-size: 20px;
+}
+
+.msg-bell-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  background: #EF4444;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border: 2px solid white;
+  animation: bellPulse 2s ease-in-out infinite;
+}
+
+@keyframes bellPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+/* 종 흔들기 애니메이션 (안 읽은 메시지 있을 때) */
+.msg-bell-btn:has(.msg-bell-badge:not([style*="display:none"]):not([style*="display: none"])) .msg-bell-icon {
+  animation: bellShake 3s ease-in-out infinite;
+}
+
+@keyframes bellShake {
+  0%, 90%, 100% { transform: rotate(0); }
+  92% { transform: rotate(15deg); }
+  94% { transform: rotate(-15deg); }
+  96% { transform: rotate(10deg); }
+  98% { transform: rotate(-10deg); }
+}
+
+/* ========== 메시지 카드 hover ========== */
+.msg-item:hover {
+  background: #F3F4F6 !important;
+  border-color: #D1D5DB !important;
+}
+
+.msg-tab-btn {
+  transition: all 0.15s;
+}

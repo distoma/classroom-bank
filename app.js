@@ -16,7 +16,21 @@ import {
 import { processTransaction } from "./modules/transactions.js";
 import { initShopTeacher, openShopModal, setStudentContext as setShopCtx } from "./modules/shop.js";
 import { renderStats } from "./modules/stats.js";
-import { openSavingsModal, setStudentContext as setSavingsCtx, openAllSavingsModal } from "./modules/savings.js";
+import {
+  openSavingsModal, setStudentContext as setSavingsCtx,
+  openAllSavingsModal, openCreditManagementModal,
+  getCreditTier, STARTING_CREDIT_SCORE
+} from "./modules/savings.js";
+import {
+  openTaxBillModal, openTaxBillsListModal,
+  openMyTaxBillsModal, setStudentContext as setTaxCtx
+} from "./modules/tax_overdue.js";
+import {
+  openComposeModalForTeacher, openComposeModalForStudent, openInbox,
+  setTeacherContext as setMsgTeacherCtx, setStudentContext as setMsgStudentCtx,
+  setCachedStudents as setMsgStudents,
+  subscribeUnreadCount, onUnreadCountChange
+} from "./modules/messages.js";
 import {
   checkAutoSalary, setAutoSalary,
   initGoalsTeacher, setTreasuryBalance,
@@ -214,6 +228,42 @@ function enterTeacherScreen() {
   document.getElementById('view-savings-btn').addEventListener('click', () => {
     openAllSavingsModal(cachedStudents);
   });
+
+  // 신용도 관리 버튼
+  document.getElementById('view-credit-btn').addEventListener('click', () => {
+    openCreditManagementModal(cachedStudents);
+  });
+
+  // 세금 부과 버튼
+  document.getElementById('open-tax-bill-btn').addEventListener('click', () => {
+    openTaxBillModal(cachedStudents);
+  });
+
+  // 부과된 세금 현황 + 연체 처리 버튼
+  document.getElementById('open-tax-bills-list-btn').addEventListener('click', () => {
+    openTaxBillsListModal(cachedStudents);
+  });
+
+  // 메시지 컨텍스트 설정
+  setMsgTeacherCtx(currentUser);
+  setMsgStudents(cachedStudents);
+
+  // 종 버튼 → 메시지함
+  document.getElementById('teacher-msg-bell').addEventListener('click', () => {
+    openInbox(currentUser, 'teacher');
+  });
+
+  // 안 읽은 메시지 수 실시간 업데이트
+  onUnreadCountChange((count) => {
+    const badge = document.getElementById('teacher-msg-badge');
+    if (count > 0) {
+      badge.textContent = count > 99 ? '99+' : count;
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  });
+  unsubscribers.push(subscribeUnreadCount(currentUser.uid, 'teacher'));
 }
 
 function loadTeacherData() {
@@ -225,6 +275,7 @@ function loadTeacherData() {
       renderStudentsList(cachedStudents);
       updateStudentSelects(cachedStudents);
       updateOverviewStats();
+      setMsgStudents(cachedStudents);
 
       // 학생 데이터 로드되면 자동 월급 체크 (한 번만)
       if (!__autoSalaryChecked) {
@@ -305,12 +356,19 @@ function renderStudentsList(students) {
     container.innerHTML = '<div class="empty-state">아직 등록된 학생이 없습니다.<br>"+ 학생 추가" 또는 "일괄 추가" 버튼을 눌러 시작하세요.</div>';
     return;
   }
-  container.innerHTML = students.map(s => `
+  container.innerHTML = students.map(s => {
+    const score = s.creditScore ?? STARTING_CREDIT_SCORE;
+    const tier = getCreditTier(score);
+    return `
     <div class="student-card">
       <div class="student-card-header">
         <div>
           <div class="student-name">${escapeHtml(s.name)}</div>
           <div class="student-id">${s.number}번 · ID: ${escapeHtml(s.id)}</div>
+        </div>
+        <div style="text-align:right;font-size:11px" title="신용 등급">
+          <div>${tier.emoji}</div>
+          <div style="color:${tier.color};font-weight:600">${score}점</div>
         </div>
       </div>
       <div class="student-balance">${formatMoney(s.balance || 0)}</div>
@@ -321,7 +379,7 @@ function renderStudentsList(students) {
         <button class="btn-danger" onclick="window.deleteStudent('${s.id}')">삭제</button>
       </div>
     </div>
-  `).join('');
+  `;}).join('');
 }
 
 document.getElementById('add-student-btn').addEventListener('click', () => {
@@ -354,6 +412,7 @@ document.getElementById('add-student-btn').addEventListener('click', () => {
         id, pwHash,
         balance: parseInt(document.getElementById('s-balance').value) || 0,
         jobId: null, jobName: null, salary: 0,
+        creditScore: STARTING_CREDIT_SCORE,
         createdAt: serverTimestamp()
       });
       closeModal();
@@ -400,6 +459,7 @@ document.getElementById('bulk-add-btn').addEventListener('click', () => {
         await setDoc(doc(db, 'students', id), {
           number: parseInt(number), name, id, pwHash,
           balance, jobId: null, jobName: null, salary: 0,
+          creditScore: STARTING_CREDIT_SCORE,
           createdAt: serverTimestamp()
         });
         added++;
@@ -831,6 +891,25 @@ function enterStudentScreen() {
   // 학생 컨텍스트 모듈에 전달
   setShopCtx(currentUser);
   setSavingsCtx(currentUser);
+  setTaxCtx(currentUser);
+  setMsgStudentCtx(currentUser);
+
+  // 종 버튼 → 메시지함
+  document.getElementById('student-msg-bell').onclick = () => {
+    openInbox(currentUser, 'student');
+  };
+
+  // 안 읽은 메시지 수 실시간 업데이트
+  onUnreadCountChange((count) => {
+    const badge = document.getElementById('student-msg-badge');
+    if (count > 0) {
+      badge.textContent = count > 99 ? '99+' : count;
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  });
+  unsubscribers.push(subscribeUnreadCount(currentUser.uid, 'student'));
 
   // 본인 정보
   const meUnsub = onSnapshot(doc(db, 'students', currentUser.uid), (snap) => {
@@ -842,6 +921,8 @@ function enterStudentScreen() {
       currentUser = { ...currentUser, ...data };
       setShopCtx(currentUser);
       setSavingsCtx(currentUser);
+      setTaxCtx(currentUser);
+      setMsgStudentCtx(currentUser);
     }
   });
   unsubscribers.push(meUnsub);
@@ -886,11 +967,12 @@ document.querySelectorAll('.action-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     const action = btn.dataset.action;
     if (action === 'transfer') openTransferModal();
-    else if (action === 'tax') openTaxModal();
+    else if (action === 'tax') openMyTaxBillsModal(currentUser);
     else if (action === 'shop') openShopModal(currentUser);
     else if (action === 'savings') openSavingsModal(currentUser);
     else if (action === 'goals') openGoalsModal(cachedTreasuryBalance);
     else if (action === 'games') openGamesStudentModal();
+    else if (action === 'messages') openComposeModalForStudent();
     else if (action === 'history') openHistoryModal();
   });
 });

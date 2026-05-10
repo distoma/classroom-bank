@@ -92,6 +92,10 @@
         <span class="header-badge teacher-badge">교사</span>
       </div>
       <div class="header-right">
+        <button id="teacher-msg-bell" class="msg-bell-btn" title="메시지함">
+          <span class="msg-bell-icon">🔔</span>
+          <span id="teacher-msg-badge" class="msg-bell-badge" style="display:none">0</span>
+        </button>
         <span id="teacher-name">선생님</span>
         <button id="teacher-logout" class="btn-text">로그아웃</button>
       </div>
@@ -175,6 +179,14 @@
             <button id="bulk-pay-btn" class="btn-primary">전체 지급</button>
           </div>
         </div>
+        <div class="card">
+          <h3>📋 세금 부과 (마감일 + 연체 감점)</h3>
+          <p class="hint">학생들에게 세금을 부과합니다. 기한 내 미납 시 신용도가 자동 감점됩니다.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="open-tax-bill-btn" class="btn-primary">새 세금 부과</button>
+            <button id="open-tax-bills-list-btn" class="btn-secondary">부과 현황 + 연체 처리</button>
+          </div>
+        </div>
       </div>
 
       <!-- 직업 관리 -->
@@ -233,7 +245,10 @@
       <div id="tab-stats" class="tab-content">
         <div class="section-header">
           <h2>📈 통계</h2>
-          <button id="view-savings-btn" class="btn-secondary">전체 적금 현황</button>
+          <div style="display:flex;gap:8px">
+            <button id="view-credit-btn" class="btn-secondary">⭐ 신용도 관리</button>
+            <button id="view-savings-btn" class="btn-secondary">전체 적금 현황</button>
+          </div>
         </div>
         <div id="stats-container">
           <div class="empty-state">탭을 클릭하면 통계가 로드됩니다</div>
@@ -325,6 +340,10 @@
         <span class="header-badge student-badge">학생</span>
       </div>
       <div class="header-right">
+        <button id="student-msg-bell" class="msg-bell-btn" title="메시지함">
+          <span class="msg-bell-icon">🔔</span>
+          <span id="student-msg-badge" class="msg-bell-badge" style="display:none">0</span>
+        </button>
         <span id="student-name">학생</span>
         <button id="student-logout" class="btn-text">로그아웃</button>
       </div>
@@ -364,6 +383,10 @@
         <button class="action-btn" data-action="games">
           <span class="action-icon">🎮</span>
           <span>학급 게임</span>
+        </button>
+        <button class="action-btn" data-action="messages">
+          <span class="action-icon">📨</span>
+          <span>선생님께 메시지</span>
         </button>
         <button class="action-btn" data-action="history">
           <span class="action-icon">📊</span>
