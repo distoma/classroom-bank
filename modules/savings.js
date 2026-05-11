@@ -4,7 +4,7 @@
 
 import {
   db,
-  collection, doc, getDoc, getDocs, addDoc, updateDoc,
+  collection, doc, setDoc, getDoc, getDocs, addDoc, updateDoc,
   query, where, orderBy, onSnapshot, serverTimestamp, increment, writeBatch
 } from "../firebase-config.js";
 import { processTransaction } from "./transactions.js";
@@ -19,13 +19,17 @@ import {
 // 시작: 30점 (3등급)
 // 격차 큰 편 (1등급 0.2배 ~ 5등급 2.0배)
 // 8주 적금 기준: 1등급 0.5% / 5등급 5%
-export const CREDIT_TIERS = [
+// ⚠️ 이 값들은 "기본값"이며, 실제 값은 Firestore의 settings/rates에서 동적으로 로드됩니다
+export const DEFAULT_CREDIT_TIERS = [
   { tier: 1, name: '신용 부족',  emoji: '⭐',         minScore: 0,  rateMultiplier: 0.2, color: '#EF4444' },
   { tier: 2, name: '주의',       emoji: '⭐⭐',       minScore: 15, rateMultiplier: 0.5, color: '#F59E0B' },
   { tier: 3, name: '기본',       emoji: '⭐⭐⭐',     minScore: 30, rateMultiplier: 1.0, color: '#6B7280' },
   { tier: 4, name: '우수',       emoji: '⭐⭐⭐⭐',   minScore: 50, rateMultiplier: 1.5, color: '#10B981' },
   { tier: 5, name: '최고',       emoji: '⭐⭐⭐⭐⭐', minScore: 80, rateMultiplier: 2.0, color: '#059669' }
 ];
+
+// 호환성 유지: 외부에서 CREDIT_TIERS로 import하던 코드를 위해 동적 변수 export
+export let CREDIT_TIERS = DEFAULT_CREDIT_TIERS.map(t => ({...t}));
 
 export const STARTING_CREDIT_SCORE = 30; // 3등급 시작점
 
@@ -40,15 +44,75 @@ export const CREDIT_DELTAS = {
 // ============================================
 // 적금 기간 옵션 (2주 단위, 4단계)
 // ============================================
-// 기준: 8주 + 5등급 = 5% (격차 큰 편)
+// 기본 이자율 (교사가 변경하지 않았을 때 사용)
 // 8주 baseRate 0.025 × 5등급 2.0배 = 5%
 // 8주 baseRate 0.025 × 1등급 0.2배 = 0.5%
-export const SAVINGS_DURATIONS = [
-  { id: '2w', weeks: 2, days: 14, baseRate: 0.00625 }, // 2주: 1등급 0.125% / 5등급 1.25%
-  { id: '4w', weeks: 4, days: 28, baseRate: 0.0125 },  // 4주: 1등급 0.25%  / 5등급 2.5%
-  { id: '6w', weeks: 6, days: 42, baseRate: 0.01875 }, // 6주: 1등급 0.375% / 5등급 3.75%
-  { id: '8w', weeks: 8, days: 56, baseRate: 0.025 }    // 8주: 1등급 0.5%   / 5등급 5%
+export const DEFAULT_SAVINGS_DURATIONS = [
+  { id: '2w', weeks: 2, days: 14, baseRate: 0.00625 },
+  { id: '4w', weeks: 4, days: 28, baseRate: 0.0125 },
+  { id: '6w', weeks: 6, days: 42, baseRate: 0.01875 },
+  { id: '8w', weeks: 8, days: 56, baseRate: 0.025 }
 ];
+
+// 호환성: 외부에서 SAVINGS_DURATIONS로 import하던 코드를 위해
+export let SAVINGS_DURATIONS = DEFAULT_SAVINGS_DURATIONS.map(d => ({...d}));
+
+// ============================================
+// Firestore에서 이자율 설정 로드/저장
+// ============================================
+export async function loadRatesFromFirestore() {
+  try {
+    const snap = await getDoc(doc(db, 'settings', 'rates'));
+    if (snap.exists()) {
+      const data = snap.data();
+      // 저장된 값이 있으면 동적 변수에 적용
+      if (Array.isArray(data.durations) && data.durations.length === 4) {
+        SAVINGS_DURATIONS = data.durations;
+      }
+      if (Array.isArray(data.tiers) && data.tiers.length === 5) {
+        // 색상/이모지/이름은 default 유지, rateMultiplier만 적용
+        CREDIT_TIERS = DEFAULT_CREDIT_TIERS.map((d, i) => ({
+          ...d,
+          rateMultiplier: data.tiers[i]?.rateMultiplier ?? d.rateMultiplier
+        }));
+      }
+    }
+  } catch (err) {
+    console.warn('이자율 설정 로드 실패, 기본값 사용:', err);
+  }
+}
+
+// 실시간 구독 (다른 사람이 변경하면 즉시 반영)
+export function subscribeRates(onChange) {
+  return onSnapshot(doc(db, 'settings', 'rates'), (snap) => {
+    if (snap.exists()) {
+      const data = snap.data();
+      if (Array.isArray(data.durations) && data.durations.length === 4) {
+        SAVINGS_DURATIONS = data.durations;
+      }
+      if (Array.isArray(data.tiers) && data.tiers.length === 5) {
+        CREDIT_TIERS = DEFAULT_CREDIT_TIERS.map((d, i) => ({
+          ...d,
+          rateMultiplier: data.tiers[i]?.rateMultiplier ?? d.rateMultiplier
+        }));
+      }
+    }
+    if (onChange) onChange();
+  });
+}
+
+// 교사가 이자율 저장
+export async function saveRates(durations, tiers) {
+  await setDoc(doc(db, 'settings', 'rates'), {
+    durations: durations.map(d => ({
+      id: d.id, weeks: d.weeks, days: d.days, baseRate: d.baseRate
+    })),
+    tiers: tiers.map(t => ({
+      tier: t.tier, rateMultiplier: t.rateMultiplier
+    })),
+    updatedAt: serverTimestamp()
+  });
+}
 
 // ============================================
 // 헬퍼 함수
@@ -137,6 +201,19 @@ export async function openSavingsModal(currentUser) {
     </div>
 
     <p class="hint">현재 잔액: ${formatMoney(currentUser.balance || 0)}</p>
+
+    ${(() => {
+      // 현재 이자율이 기본값보다 높은지 체크 → 이벤트 안내
+      const isEvent = SAVINGS_DURATIONS.some((d, i) =>
+        d.baseRate > (DEFAULT_SAVINGS_DURATIONS[i]?.baseRate || 0) * 1.01
+      );
+      return isEvent
+        ? `<div style="background:linear-gradient(135deg,#FEF3C7 0%,#FDE68A 100%);border:1.5px solid #F59E0B;border-radius:10px;padding:12px;margin:12px 0;text-align:center">
+            <strong style="color:#D97706;font-size:14px">🎉 이자율 이벤트 진행 중!</strong>
+            <div style="font-size:12px;color:#92400E;margin-top:4px">평소보다 높은 이자율이 적용 중이에요. 지금이 가입할 좋은 기회!</div>
+          </div>`
+        : '';
+    })()}
 
     <h3 style="margin-top:16px;font-size:15px">📌 적금 가입</h3>
     <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
@@ -731,7 +808,27 @@ export async function openCreditHistoryModal(students) {
 export async function renderSavingsTab(students, filter = 'active') {
   const summary = document.getElementById('savings-summary');
   const list = document.getElementById('savings-list');
+  const ratesDisplay = document.getElementById('current-rates-display');
   if (!list) return;
+
+  // 현재 이자율 요약 표시 (5등급 기준)
+  if (ratesDisplay) {
+    const tier5 = CREDIT_TIERS[CREDIT_TIERS.length - 1];
+    const tier1 = CREDIT_TIERS[0];
+    ratesDisplay.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <div>
+          <strong>📊 현재 이자율:</strong>
+          ${SAVINGS_DURATIONS.map(d => {
+            const high = (d.baseRate * tier5.rateMultiplier * 100).toFixed(2);
+            const low = (d.baseRate * tier1.rateMultiplier * 100).toFixed(2);
+            return `<span style="margin-left:10px">${d.weeks}주: <strong>${low}%~${high}%</strong></span>`;
+          }).join('')}
+        </div>
+        <div style="font-size:11px;color:#6B7280">기간 × 신용등급 ${tier1.rateMultiplier}~${tier5.rateMultiplier}배</div>
+      </div>
+    `;
+  }
 
   // 로딩 상태 표시
   list.innerHTML = '<div class="empty-state">적금 데이터를 불러오는 중...</div>';
@@ -833,3 +930,183 @@ export async function renderSavingsTab(students, filter = 'active') {
     list.innerHTML = `<div class="empty-state" style="color:#EF4444">적금 데이터 로드 실패: ${err.message}</div>`;
   }
 }
+
+// ============================================
+// 교사: 이자율 관리 모달
+// ============================================
+export async function openRatesManagementModal() {
+  // 현재 값 로드
+  await loadRatesFromFirestore();
+
+  openModal(`
+    <h2>💰 이자율 관리</h2>
+    <p class="hint">기간별 기본 이자율과 신용 등급별 배율을 조정합니다. <strong>변경 즉시 모든 학생에게 반영</strong>되지만, 이미 가입된 적금의 이자율은 변경되지 않습니다.</p>
+
+    <form id="rates-form" class="modal-form">
+      <!-- 기간별 이자율 -->
+      <h3 style="font-size:15px;margin-top:8px">📅 기간별 기본 이자율 (%)</h3>
+      <p class="hint" style="font-size:11px;margin-top:-4px">기간이 길수록 이자율이 높은 게 일반적입니다. 0.5 = 0.5%</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+        ${SAVINGS_DURATIONS.map((d, i) => `
+          <div style="display:flex;align-items:center;gap:10px;padding:10px;background:#F9FAFB;border-radius:8px">
+            <div style="font-weight:600;min-width:80px">${d.weeks}주 적금</div>
+            <input type="number" id="rate-duration-${i}" required step="0.01" min="0" max="100"
+              value="${(d.baseRate * 100).toFixed(2)}"
+              style="flex:1;padding:8px 12px;border:1.5px solid #E5E7EB;border-radius:6px;font-size:14px;font-family:inherit;text-align:right" />
+            <span style="font-size:13px;color:#6B7280">%</span>
+          </div>
+        `).join('')}
+      </div>
+
+      <!-- 신용 등급별 배율 -->
+      <h3 style="font-size:15px;margin-top:16px">⭐ 신용 등급별 이자 배율</h3>
+      <p class="hint" style="font-size:11px;margin-top:-4px">기본 이자율에 곱해집니다. 1.0 = 그대로, 2.0 = 2배, 0.5 = 절반</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">
+        ${CREDIT_TIERS.map((t, i) => `
+          <div style="display:flex;align-items:center;gap:10px;padding:10px;background:${t.color}11;border-radius:8px;border-left:3px solid ${t.color}">
+            <div style="font-weight:600;min-width:90px;color:${t.color}">${t.emoji} ${t.tier}등급</div>
+            <input type="number" id="rate-tier-${i}" required step="0.05" min="0" max="10"
+              value="${t.rateMultiplier}"
+              style="flex:1;padding:8px 12px;border:1.5px solid #E5E7EB;border-radius:6px;font-size:14px;font-family:inherit;text-align:right" />
+            <span style="font-size:13px;color:#6B7280">배</span>
+          </div>
+        `).join('')}
+      </div>
+
+      <!-- 미리보기 -->
+      <div id="rates-preview" style="background:#EEF2FF;border-radius:8px;padding:12px;font-size:12px;margin-bottom:12px">
+        실제 이자율을 계산 중...
+      </div>
+
+      <!-- 빠른 프리셋 -->
+      <div style="margin-bottom:12px">
+        <p class="hint" style="font-size:12px;margin-bottom:6px">⚡ 빠른 프리셋:</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button type="button" class="btn-secondary" onclick="window.applyRatesPreset('default')" style="font-size:12px;padding:5px 10px">기본값 복원</button>
+          <button type="button" class="btn-secondary" onclick="window.applyRatesPreset('event_x2')" style="font-size:12px;padding:5px 10px">🎉 이자 2배 이벤트</button>
+          <button type="button" class="btn-secondary" onclick="window.applyRatesPreset('high_credit_focus')" style="font-size:12px;padding:5px 10px">⭐ 우수등급 강화</button>
+          <button type="button" class="btn-secondary" onclick="window.applyRatesPreset('low_all')" style="font-size:12px;padding:5px 10px">🔻 전체 인하</button>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" onclick="window.closeModal()">취소</button>
+        <button type="submit" class="btn-primary">저장</button>
+      </div>
+    </form>
+  `);
+
+  // 입력 변경 시 실시간 미리보기 업데이트
+  const updatePreview = () => {
+    const durs = SAVINGS_DURATIONS.map((_, i) =>
+      parseFloat(document.getElementById(`rate-duration-${i}`).value) / 100
+    );
+    const tiers = CREDIT_TIERS.map((_, i) =>
+      parseFloat(document.getElementById(`rate-tier-${i}`).value)
+    );
+    const preview = document.getElementById('rates-preview');
+    preview.innerHTML = `
+      <div style="font-weight:600;margin-bottom:6px">📊 등급 × 기간별 최종 이자율 미리보기</div>
+      <table style="width:100%;font-size:11px;border-collapse:collapse">
+        <thead>
+          <tr style="background:#C7D2FE">
+            <th style="padding:4px;text-align:left">등급</th>
+            ${SAVINGS_DURATIONS.map(d => `<th style="padding:4px;text-align:right">${d.weeks}주</th>`).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${CREDIT_TIERS.map((t, ti) => `
+            <tr>
+              <td style="padding:4px;color:${t.color};font-weight:600">${t.emoji} ${t.tier}등급</td>
+              ${durs.map(rate => `<td style="padding:4px;text-align:right">${(rate * tiers[ti] * 100).toFixed(2)}%</td>`).join('')}
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  };
+
+  // 모든 입력에 이벤트 리스너
+  SAVINGS_DURATIONS.forEach((_, i) => {
+    document.getElementById(`rate-duration-${i}`).addEventListener('input', updatePreview);
+  });
+  CREDIT_TIERS.forEach((_, i) => {
+    document.getElementById(`rate-tier-${i}`).addEventListener('input', updatePreview);
+  });
+  updatePreview();
+
+  // 저장
+  document.getElementById('rates-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const newDurations = SAVINGS_DURATIONS.map((d, i) => ({
+      ...d,
+      baseRate: parseFloat(document.getElementById(`rate-duration-${i}`).value) / 100
+    }));
+    const newTiers = CREDIT_TIERS.map((t, i) => ({
+      ...t,
+      rateMultiplier: parseFloat(document.getElementById(`rate-tier-${i}`).value)
+    }));
+
+    // 검증
+    for (const d of newDurations) {
+      if (isNaN(d.baseRate) || d.baseRate < 0) {
+        toast(`${d.weeks}주 이자율이 올바르지 않습니다`, 'error');
+        return;
+      }
+    }
+    for (const t of newTiers) {
+      if (isNaN(t.rateMultiplier) || t.rateMultiplier < 0) {
+        toast(`${t.tier}등급 배율이 올바르지 않습니다`, 'error');
+        return;
+      }
+    }
+
+    try {
+      await saveRates(newDurations, newTiers);
+      closeModal();
+      toast('이자율이 저장되었습니다. 학생들에게 즉시 반영됩니다.', 'success');
+    } catch (err) {
+      toast('저장 실패: ' + err.message, 'error');
+    }
+  });
+}
+
+// 빠른 프리셋
+window.applyRatesPreset = (preset) => {
+  let durRates, tierMults;
+  switch (preset) {
+    case 'default':
+      durRates = [0.625, 1.25, 1.875, 2.5];
+      tierMults = [0.2, 0.5, 1.0, 1.5, 2.0];
+      break;
+    case 'event_x2':
+      // 모든 기본 이자율 2배
+      durRates = [1.25, 2.5, 3.75, 5.0];
+      tierMults = [0.2, 0.5, 1.0, 1.5, 2.0];
+      break;
+    case 'high_credit_focus':
+      // 5등급 배율 강화 (3배까지)
+      durRates = [0.625, 1.25, 1.875, 2.5];
+      tierMults = [0.1, 0.3, 1.0, 2.0, 3.0];
+      break;
+    case 'low_all':
+      // 전체 인하 (현금 회수용)
+      durRates = [0.25, 0.5, 0.75, 1.0];
+      tierMults = [0.5, 0.75, 1.0, 1.25, 1.5];
+      break;
+    default:
+      return;
+  }
+
+  durRates.forEach((rate, i) => {
+    const el = document.getElementById(`rate-duration-${i}`);
+    if (el) el.value = rate.toFixed(2);
+  });
+  tierMults.forEach((mult, i) => {
+    const el = document.getElementById(`rate-tier-${i}`);
+    if (el) el.value = mult;
+  });
+
+  // 미리보기 갱신을 위해 input 이벤트 trigger
+  document.getElementById('rate-duration-0').dispatchEvent(new Event('input'));
+};

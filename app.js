@@ -21,7 +21,8 @@ import {
   openAllSavingsModal, openCreditManagementModal,
   getCreditTier, STARTING_CREDIT_SCORE,
   renderCreditTab, renderSavingsTab,
-  openBulkCreditModal, openCreditHistoryModal
+  openBulkCreditModal, openCreditHistoryModal,
+  loadRatesFromFirestore, subscribeRates, openRatesManagementModal
 } from "./modules/savings.js";
 import {
   openTaxBillModal, openTaxBillsListModal,
@@ -76,6 +77,8 @@ async function init() {
       classSettings = settingsDoc.data();
       document.getElementById('class-name-display').textContent =
         classSettings.className || '우리 반 경제 활동 시스템';
+      // 이자율 설정 미리 로드 (없으면 기본값 사용)
+      await loadRatesFromFirestore();
       showScreen('login-screen');
     }
   } catch (err) {
@@ -248,6 +251,11 @@ function enterTeacherScreen() {
     renderSavingsTab(cachedStudents, e.target.value);
   });
 
+  // 이자율 관리 버튼
+  document.getElementById('manage-rates-btn').addEventListener('click', () => {
+    openRatesManagementModal();
+  });
+
   // 세금 부과 버튼
   document.getElementById('open-tax-bill-btn').addEventListener('click', () => {
     openTaxBillModal(cachedStudents);
@@ -370,6 +378,15 @@ function loadTeacherData() {
     }
   });
   unsubscribers.push(savingsUnsub);
+
+  // 이자율 설정 실시간 구독 (변경 시 적금 탭 자동 갱신)
+  const ratesUnsub = subscribeRates(() => {
+    if (document.getElementById('tab-savings')?.classList.contains('active')) {
+      const filter = document.getElementById('savings-filter')?.value || 'active';
+      renderSavingsTab(cachedStudents, filter);
+    }
+  });
+  unsubscribers.push(ratesUnsub);
 
   // 설정
   const settingsUnsub = onSnapshot(doc(db, 'settings', 'main'), (snap) => {
@@ -1015,6 +1032,9 @@ function enterStudentScreen() {
     if (snap.exists()) cachedTreasuryBalance = snap.data().balance || 0;
   });
   unsubscribers.push(treasuryUnsub);
+
+  // 이자율 설정 실시간 구독 (교사가 변경하면 학생도 즉시 새 이자율 표시)
+  unsubscribers.push(subscribeRates());
 }
 
 // 학생 액션 버튼

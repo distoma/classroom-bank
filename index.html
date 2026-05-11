@@ -177,7 +177,8 @@
       <div id="tab-savings" class="tab-content">
         <div class="section-header">
           <h2>🏦 적금 관리</h2>
-          <div style="display:flex;gap:8px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="manage-rates-btn" class="btn-primary">💰 이자율 관리</button>
             <select id="savings-filter" style="padding:8px 12px;border:1.5px solid #E5E7EB;border-radius:8px;font-size:14px">
               <option value="active">진행 중</option>
               <option value="matured">만기 도달</option>
@@ -186,7 +187,8 @@
             </select>
           </div>
         </div>
-        <p class="hint">학생들의 적금 가입 현황과 만기 상태를 확인합니다. 만기된 적금은 학생이 직접 "받기" 버튼을 눌러야 환급됩니다.</p>
+        <p class="hint">학생들의 적금 가입 현황과 만기 상태를 확인합니다. <strong>"💰 이자율 관리"</strong>로 기간별·등급별 이자율을 자유롭게 조정할 수 있습니다 (이벤트·시기별 가입 유도용).</p>
+        <div id="current-rates-display" style="background:#EEF2FF;border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px"></div>
         <div id="savings-summary" class="stat-grid" style="margin-bottom:16px"></div>
         <div id="savings-list" style="display:flex;flex-direction:column;gap:8px"></div>
       </div>
